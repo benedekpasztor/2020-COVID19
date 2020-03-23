@@ -1,14 +1,10 @@
-library(tidyverse)
-library(dplyr)
-library(reshape2)
-
 
 ###### COVID-19 DATA ####
+covid_refresh <- function(){
+  
 data_confirmed <- read.csv('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Confirmed.csv')
 data_deaths <- read.csv('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Deaths.csv')
 data_recovered <- read.csv('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Recovered.csv')
-
-
 
 data_confirmed <- melt(data_confirmed, id.vars = c("Province.State", "Country.Region", "Lat", "Long")) %>% plyr::rename(c('variable' = 'date', 
                                                                                                                           'value' = 'confirmed'))
@@ -32,81 +28,67 @@ data_covid_f <- data_covid %>% filter(!(confirmed == 0 & deaths == 0 & recovered
   mutate(day_since_first_case = row_number())
 
 
+write.table(data_covid_f, 'data/raw/covid19_data.csv', sep = ',', dec = '.')
 
-# Downloading weather data
-### Example function
-a <- data_covid_f %>% tail(2)
-
-a$lat
-
-a <- data.frame(date = seq(as.Date(period_start),as.Date(period_end), "days"),
-                time = "00:00:00", stringsAsFactors=F)
-A$daytime <- paste0(A$date, "T", A$time)
-
-
-ds <- data.frame()
-for (i in 1:nrow(a)){
-  time_i <- paste0(a[i, 'lat'])
-  print(time_i)
-  #url <- paste0("https://api.darksky.net/forecast/bd060e57255f4338569d9bb5cb35fa1d/46.0488,17.7983,", A[i, 3], "?units=si&extend=hourly")
-  #dsraw <- readLines(url)
-  #dslist <- fromJSON(dsraw)
-  #ds_i <- dslist$hourly$data
-  #ds <- plyr::rbind.fill(ds, ds_i)  
+return()
 }
 
 
 
+# Refreshing weather data
+ds_refresh <- function(){
 
-########### Country specific data
+covid <- read.table('data/raw/covid19_data.csv', sep = ',', dec = '.') %>% 
+  mutate(date = as.Date(date))
+ds_daily_orig <- read.table('data/raw/ds_daily.csv', sep = ',', dec = '.', header = T) %>% 
+  mutate(date = as.Date(date))
+ds_hourly_orig <- read.table('data/raw/ds_hourly.csv', sep = ',', dec = '.', header = T) %>% 
+  mutate(date = as.Date(date))
 
-library(WDI)
-library(data.table)
-library(countrycode)
+### Example function
+ds_keys <- c('46f93c9bb3e81f2ff9e21608eeee3e45')
+ds_key <- ds_keys[1]
 
-
-data <- WDI(country = 'all', indicator = c("SP.POP.TOTL", "NY.GDP.PCAP.PP.KD", "ny.gdp.mktp.cd", "AG.SRF.TOTL.K2", 
-                          "SP.DYN.LE00.IN", "SP.URB.TOTL.IN.ZS"), 
-            start = 2017, end = 2017, extra = TRUE) 
-
-## converting to data table
-data <- data.table(data)
-
-## namings
-names(data)[which(names(data) == "SP.POP.TOTL")] <- "Population"
-names(data)[which(names(data) == "NY.GDP.PCAP.PP.KD")] <- "GDPPerCap"
-names(data)[which(names(data) == "ny.gdp.mktp.cd")] <- "GDP"
-names(data)[which(names(data) == "AG.SRF.TOTL.K2")] <- "Area"
-names(data)[which(names(data) == "SP.DYN.LE00.IN")] <- "LifeExp"
-names(data)[which(names(data) == "SP.URB.TOTL.IN.ZS")] <- "UrbanPop"
+data_for_ds <- covid %>% 
+  filter(date > max(ds_daily_orig$date)) %>% 
+  mutate(ds_datetimes = paste0(date, "T00:00:00"))
 
 
-## keeping only the necessary columns, creating full name and continent columns
-data <- data[, .(iso3c, year, country, region, Population, UrbanPop, GDPPerCap, GDP, 
-                 Area, LifeExp, capital, income, lending)]
-data[, country := countrycode(data$iso3c, 'iso3c', destination = 'country.name')]
-data[, continent := countrycode(data$iso3c, 'iso3c', 'continent')]
-data <- data[region != "Aggregates", ]
+ds_daily <- data.frame()
+ds_hourly <- data.frame()
+
+if (nrow(data_for_ds) != 0){
+  
+  for (i in 1:nrow(data_for_ds)){
+    time_i <- paste0(data_for_ds[i, 'lat'])
+    url <- paste0("https://api.darksky.net/forecast/", ds_key, "/", data_for_ds[[i, "lat"]], ",",
+                  data_for_ds[[i, "lon"]], ",", data_for_ds[[i, "ds_datetimes"]], "?units=si&extend=hourly&lang=en")
+    print(url)
+    
+    dsraw <- readLines(url)
+    dslist <- fromJSON(dsraw)
+  
+    ds_hourly_i <- dslist$hourly$data
+    ds_hourly_i <- ds_hourly_i %>% mutate(country = data_for_ds[[i, "country"]], province = data_for_ds[[i, "province"]], date = data_for_ds[[i, "date"]])
+    ds_daily_i <- dslist$daily$data 
+    ds_daily_i <- ds_daily_i %>% mutate(country = data_for_ds[[i, "country"]], province = data_for_ds[[i, "province"]], date = data_for_ds[[i, "date"]])
+    
+    ds_hourly <- plyr::rbind.fill(ds_hourly, ds_hourly_i)  
+    ds_daily <- plyr::rbind.fill(ds_daily, ds_daily_i)  
+  }
+}
+
+ds_daily_new <- plyr::rbind.fill(ds_daily_orig, ds_daily)
+ds_hourly_new <- plyr::rbind.fill(ds_hourly_orig, ds_hourly)
+
+file.move('data/raw/ds_daily.csv', paste0('data/raw/old/ds_daily_', Sys.Date(), '.csv'))
+file.move('data/raw/ds_hourly.csv', paste0('data/raw/old/ds_hourly_', Sys.Date(), '.csv'))
+
+write.table(ds_daily_new, 'data/raw/ds_daily.csv', row.names = F, dec = '.', sep = ',')
+write.table(ds_hourly_new, 'data/raw/ds_hourly.csv', row.names = F, dec = '.', sep = ',')
+
+return()
+
+}
 
 
-# prepare for merging
-names(data)[which(names(data) == "year")] <- "YEAR"
-names(data)[which(names(data) == "iso3c")] <- "CCODE"
-
-# Continents
-data[, continent := countrycode(CCODE, 'iso3c', 'continent')]
-data[CCODE == "ANT", continent := "Americas"]
-data[CCODE == "CSK", continent := "Europe"]
-data[CCODE == "DDR", continent := "Europe"]
-data[CCODE == "YMD", continent := "Asia"]
-data[CCODE == "NMP", continent := "Asia"]
-
-#if country name doesn't exist -> country name := CCODE
-data[is.na(country), country := CCODE]
-
-# dropping values without valid continent value
-data <- data[!is.na(continent)]
-
-data
-
-############### Weather data #### f652bf7e233ec0c2d7845413f2ad1e71 - https://api.darksky.net/forecast/f652bf7e233ec0c2d7845413f2ad1e71/37.8267,-122.4233
