@@ -6,6 +6,13 @@ data_confirmed <- read.csv('https://raw.githubusercontent.com/CSSEGISandData/COV
 data_deaths <- read.csv('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Deaths.csv')
 data_recovered <- read.csv('https://raw.githubusercontent.com/CSSEGISandData/COVID-19/master/csse_covid_19_data/csse_covid_19_time_series/time_series_19-covid-Recovered.csv')
 
+# 
+# data <- read.csv('https://query.data.world/s/6bv3kozmtz74uj4htfkgilyuouiolu')
+# view(data %>% mutate(date = as.Date(ï..Date, format = '%m/%d/%Y')) %>% filter(Country_Region == 'US' & Case_Type == 'Recovered') %>% group_by(date) %>% summarize(sum(Cases)))
+# 
+# 
+# names(data)
+
 data_confirmed <- melt(data_confirmed, id.vars = c("Province.State", "Country.Region", "Lat", "Long")) %>% plyr::rename(c('variable' = 'date', 
                                                                                                                           'value' = 'confirmed'))
 data_deaths <- melt(data_deaths, id.vars = c("Province.State", "Country.Region", "Lat", "Long"))  %>% plyr::rename(c('variable' = 'date', 
@@ -22,10 +29,32 @@ data_covid <- plyr::join(plyr::join(data_confirmed, data_deaths), data_recovered
 rm(list = c('data_confirmed', 'data_deaths', 'data_recovered'))
 
 # Little data manipulation
+data_covid <- data_covid %>%
+  mutate(province = as.character(province),
+         country = as.character(country)) %>% 
+  mutate(province = ifelse(nchar(province) == 0, country, province))
+
+
 data_covid_f <- data_covid %>% filter(!(confirmed == 0 & deaths == 0 & recovered == 0)) %>% 
-  group_by(country, province) %>% 
+  group_by(province) %>% 
   arrange((date), .by_group = TRUE) %>% 
-  mutate(day_since_first_case = row_number())
+  mutate(day_since_first_case_province = row_number()) %>% 
+  as.data.frame()
+
+# Country-wise day since
+data_covid_c <- data_covid_f %>% 
+  group_by(country, date) %>% 
+  summarize(confirmed = sum(confirmed), deaths = sum(deaths), recovered = sum(recovered)) %>% 
+  ungroup() %>% 
+  group_by(country) %>% 
+  arrange(date, .by_group = TRUE) %>% 
+  mutate(day_since_first_case_country = row_number()) %>% 
+  select(country, date, day_since_first_case_country) %>% 
+  as.data.frame()
+
+data_covid_f <- plyr::join(data_covid_f, data_covid_c, by = c('country', 'date'))
+
+view(data_covid_f %>% filter(country == 'Australia') %>% group_by(day_since_first_case_country) %>% summarize(sum(recovered)))
 
 
 write.table(data_covid_f, 'data/raw/covid19_data.csv', sep = ',', dec = '.')

@@ -16,18 +16,18 @@ worldbank <- read.csv('data/raw/worldbank_data.csv')
 
 ######## covid preparation
 covid <- covid %>% 
-  group_by(country, province) %>%
+  group_by(province) %>%
   arrange(date) %>%
   mutate(date = as.Date(date),
          active = confirmed - deaths - recovered) %>% 
   mutate(confirmed_daily = confirmed - lag(confirmed, default = first(confirmed)),
          deaths_daily = confirmed - lag(deaths, default = first(deaths)),
-         recovered_dailty = confirmed - lag(confirmed, default = first(recovered)),
+         recovered_daily = confirmed - lag(confirmed, default = first(recovered)),
          active_daily = confirmed - lag(confirmed, default = first(active))) %>% 
-  mutate(confirmed_daily = ifelse(day_since_first_case == 1, confirmed, confirmed_daily),
-         deaths_daily = ifelse(day_since_first_case == 1, deaths, deaths_daily),
-         recovered_dailty = ifelse(day_since_first_case == 1, recovered, recovered_dailty),
-         active_daily = ifelse(day_since_first_case == 1, active, active_daily)) %>% 
+  mutate(confirmed_daily = ifelse(day_since_first_case_province == 1, confirmed, confirmed_daily),
+         deaths_daily = ifelse(day_since_first_case_province == 1, deaths, deaths_daily),
+         recovered_daily = ifelse(day_since_first_case_province == 1, recovered, recovered_daily),
+         active_daily = ifelse(day_since_first_case_province == 1, active, active_daily)) %>% 
   as.data.frame() %>% 
   mutate(country = as.character(country),
          province = as.character(province))
@@ -182,8 +182,47 @@ final_data <- plyr::join_all(list(ts_data_all, stats_data), by = 'country')
 final_data <- final_data %>% mutate(pop_density_nkm2 = population_no / area_km2,
                                     population_million = population_no / 10^6,
                                     population_elderly = elderly_65above_no / population_no,
-                                    deaths_per_cases = deaths / confirmed)
+                                    deaths_per_cases = deaths / confirmed,
+                                    confirmed_permillion = confirmed / population_million,
+                                    deaths_permillion = deaths / population_million,
+                                    daily_deaths_perc_to_lastyear_all = deaths_daily / average_daily_deaths)
 
+final_data <- final_data %>% 
+  group_by(province) %>% 
+  arrange(date, .by_group = TRUE) %>% 
+  mutate(confirmed_daily_increment_perc_province = (confirmed_daily - lag(confirmed_daily)) / lag(confirmed_daily),
+         confirmed_daily_increment_perc_province = ifelse(is.infinite(confirmed_daily_increment_perc_province), 1, 
+                                              ifelse(is.na(confirmed_daily_increment_perc_province), 0, confirmed_daily_increment_perc_province))) %>% 
+  mutate(deaths_daily_increment_perc_province = (deaths_daily - lag(deaths_daily)) / lag(deaths_daily),
+         deaths_daily_increment_perc_province = ifelse(is.infinite(deaths_daily_increment_perc_province), 1, 
+                                                       ifelse(is.na(deaths_daily_increment_perc_province), 0, deaths_daily_increment_perc_province))) %>% 
+  mutate(recovered_daily_increment_perc_province = (deaths_daily - lag(recovered_daily)) / lag(recovered_daily),
+         recovered_daily_increment_perc_province = ifelse(is.infinite(recovered_daily_increment_perc_province), 1, 
+                                                       ifelse(is.na(recovered_daily_increment_perc_province), 0, recovered_daily_increment_perc_province))) %>% 
+  mutate(temperatureHigh_increment_perc_province = (confirmed_daily - lag(temperatureHigh)) / lag(temperatureHigh),
+         temperatureHigh_increment_perc_province = ifelse(is.infinite(temperatureHigh_increment_perc_province), 1, 
+                                                          ifelse(is.na(temperatureHigh_increment_perc_province), 0, temperatureHigh_increment_perc_province))) %>% 
+  mutate(temperature_std_increment_perc_province = (temperature_std - lag(temperature_std)) / lag(temperature_std),
+         temperature_std_increment_perc_province = ifelse(is.infinite(temperature_std_increment_perc_province), 1, 
+                                                          ifelse(is.na(temperature_std_increment_perc_province), 0, temperature_std_increment_perc_province))) %>% 
+  mutate(pressure_std_increment_perc_province = (pressure_std - lag(pressure_std)) / lag(pressure_std),
+         pressure_std_increment_perc_province = ifelse(is.infinite(pressure_std_increment_perc_province), 1, 
+                                                          ifelse(is.na(pressure_std_increment_perc_province), 0, pressure_std_increment_perc_province))) %>% 
+  mutate(arrived_at_province = min(date)) %>% 
+  ungroup() %>% 
+  group_by(country) %>% 
+  mutate(arrived_at_country = min(date)) %>% 
+  ungroup() %>% 
+  mutate(internationaltourist_yearly_nopc = internationaltourist_yearly_no / population_no)
+  
+  
+
+
+## death ratio calculations
+final_data <- final_data %>% 
+  mutate(deaths_to_confirmed = deaths / confirmed,
+         deaths_to_recovered = deaths / recovered,
+         recovered_to_confirmed = recovered / confirmed)
 
 
 ### creation of a final dataframe & csv
